@@ -1,0 +1,27 @@
+{
+  "extends": "@tsconfig/recommended",
+  "compilerOptions": {
+    "outDir": "../dist",
+    "rootDir": "./src",
+    "target": "ES2021",
+    "lib": ["ES2021", "ES2022.Object", "DOM"],
+    "paths": {
+      "langchain-gigachat/*": ["./src/*"],
+      "langchain-gigachat": ["./src/index.ts"]
+    },
+    "module": "ES2020",
+    "moduleResolution": "nodenext",
+    "esModuleInterop": true,
+    "declaration": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "useDefineForClassFields": true,
+    "strictPropertyInitialization": false,
+    "allowJs": true,
+    "strict": true
+  },
+  "include": ["src/**/*", "examples/*"],
+  "exclude": ["node_modules", "dist", "docs"]
+}
