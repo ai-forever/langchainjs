@@ -30,6 +30,7 @@ import {
   ChatCompletion,
   FunctionParameters,
   ChatCompletionChunk,
+  WithXHeaders,
 } from "gigachat/interfaces";
 import { GigaChat as GigaChatClient, GigaChatClientConfig } from "gigachat";
 import { zodToJsonSchema } from "zod-to-json-schema";
@@ -44,12 +45,13 @@ import {
   StructuredOutputMethodOptions,
 } from "@langchain/core/language_models/base";
 import { ChatGenerationChunk, ChatResult } from "@langchain/core/outputs";
-import { Choices } from "gigachat/interfaces/choices";
 import { ToolCall, ToolCallChunk } from "@langchain/core/messages/tool";
 import { z } from "zod";
 import { isZodSchema } from "@langchain/core/utils/types";
 import { BaseLLMOutputParser } from "@langchain/core/output_parsers";
 import { JsonOutputKeyToolsParser } from "@langchain/core/output_parsers/openai_tools";
+
+import { v4 as uuidv4 } from "uuid";
 
 /* A type representing additional parameters that can be passed to the
  * GigaChat API.
@@ -87,6 +89,14 @@ export interface GigaChatInput extends GigaChatModelInput {
    *  that are not explicitly specified on this class.
    */
   invocationKwargs?: Kwargs;
+}
+
+function removeEmpty<T>(obj: T): T {
+  const newObj: Partial<T> = {};
+  for (const key in obj) {
+    if (obj[key] !== undefined) newObj[key] = obj[key];
+  }
+  return newObj as T;
 }
 
 /**
@@ -162,7 +172,7 @@ function _convertMessageToPayload(_messages: BaseMessage[]): Message[] {
       content = JSON.stringify(content);
     }
     let function_call;
-    if (isAIMessage(_message) && _message.tool_calls) {
+    if (isAIMessage(_message) && _message.tool_calls?.length) {
       function_call = {
         name: _message.tool_calls[0].name,
         arguments: _message.tool_calls[0].args,
@@ -189,30 +199,31 @@ function _convertMessageToPayload(_messages: BaseMessage[]): Message[] {
 }
 
 function gigachatResponseToChatMessage(
-  choice: Choices,
-  usage: Usage,
+  completion: ChatCompletion & WithXHeaders,
   includeRawResponse?: boolean
 ): BaseMessage {
+  const choice = completion.choices[0];
   const rawToolCalls: FunctionCall | undefined = choice.message.function_call;
   switch (choice.message.role) {
     case "assistant": {
       const toolCalls: ToolCall[] = [];
+      const additional_kwargs: Record<string, unknown> = {};
       if (choice.message.function_call) {
         toolCalls.push({
           name: choice.message.function_call.name,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           args: choice.message.function_call.arguments as Record<string, any>,
+          id: uuidv4(),
+          type: "tool_call",
         });
-      }
-      const additional_kwargs: Record<string, unknown> = {
-        function_call: {
+        additional_kwargs.function_call = {
           name: choice.message.function_call?.name,
           arguments: JSON.stringify(choice.message.function_call?.arguments),
-        },
-        tool_calls: rawToolCalls,
-        function_state_id: choice.message.functions_state_id,
-      };
-      if (includeRawResponse !== undefined) {
+        };
+        additional_kwargs.tool_calls = rawToolCalls;
+        additional_kwargs.function_state_id = choice.message.functions_state_id;
+      }
+      if (includeRawResponse) {
         additional_kwargs.__raw_response = choice;
       }
 
@@ -220,10 +231,13 @@ function gigachatResponseToChatMessage(
         content: choice.message.content || "",
         tool_calls: toolCalls,
         additional_kwargs,
+        response_metadata: {
+          xHeaders: completion.xHeaders,
+        },
         usage_metadata: {
-          input_tokens: usage.prompt_tokens,
-          output_tokens: usage.completion_tokens,
-          total_tokens: usage.total_tokens,
+          input_tokens: completion.usage.prompt_tokens,
+          output_tokens: completion.usage.completion_tokens,
+          total_tokens: completion.usage.total_tokens,
         },
       });
     }
@@ -237,7 +251,8 @@ function gigachatResponseToChatMessage(
 
 function _convertDeltaToMessageChunk(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  chunk: ChatCompletionChunk,
+  chunk: ChatCompletionChunk & WithXHeaders,
+  index: number,
   defaultRole?: MessageRole,
   includeRawResponse?: boolean
 ) {
@@ -268,11 +283,16 @@ function _convertDeltaToMessageChunk(
         name: delta.function_call.name,
         args: JSON.stringify(delta.function_call.arguments),
         type: "tool_call_chunk",
+        id: uuidv4(),
+        index,
       });
     }
     return new AIMessageChunk({
       content,
       tool_call_chunks: toolCallChunks,
+      response_metadata: {
+        xHeaders: chunk.xHeaders,
+      },
       additional_kwargs,
     });
   } else if (role === "system") {
@@ -293,15 +313,6 @@ function _convertDeltaToMessageChunk(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isGigaChatTool(tool: any): tool is _Function {
   return "name" in tool && "parameters" in tool;
-}
-
-function removeEmpty<T>(obj: T): T {
-  const newObj: Partial<T> = {};
-  for (const key in obj) {
-    if (obj[key] === Object(obj[key])) newObj[key] = removeEmpty(obj[key]);
-    else if (obj[key] !== undefined) newObj[key] = obj[key];
-  }
-  return newObj as T;
 }
 
 /**
@@ -428,12 +439,7 @@ export class GigaChat<
       user: fields?.user,
       password: fields?.password,
       timeout: fields?.timeout,
-      verifySslCerts: fields?.verifySslCerts,
       verbose: fields?.verbose,
-      caBundle: fields?.caBundle,
-      cert: fields?.cert,
-      key: fields?.key,
-      keyPassword: fields?.keyPassword,
       flags: fields?.flags,
       httpsAgent: fields?.httpsAgent,
     };
@@ -475,7 +481,7 @@ export class GigaChat<
         return {
           name: tool.name,
           description: tool.description,
-          input_schema: zodToJsonSchema(tool.schema) as _Function,
+          parameters: zodToJsonSchema(tool.schema) as FunctionParameters,
         };
       }
       throw new Error(
@@ -531,12 +537,14 @@ export class GigaChat<
       return;
     }
 
+    let index = 0;
+
     for await (const data of stream) {
       // if (options.signal?.aborted) {
       //   stream.controller.abort();
       //   throw new Error("AbortError: User aborted the request.");
       // }
-      const chunk = _convertDeltaToMessageChunk(data);
+      const chunk = _convertDeltaToMessageChunk(data, index);
 
       const generationChunk = new ChatGenerationChunk({
         message: chunk,
@@ -552,27 +560,41 @@ export class GigaChat<
         undefined,
         { chunk: generationChunk }
       );
+      index += 1;
     }
   }
 
   /**
    * Creates a streaming request with retry.
    * @param request The parameters for creating a completion.
-   * @param options
    * @returns A streaming request.
    */
   protected async createStreamWithRetry(
     request: Chat & Kwargs
-  ): Promise<AsyncIterable<ChatCompletionChunk> | undefined> {
-    const makeCompletionRequest = async () => this._client?.stream(request);
+  ): Promise<AsyncIterable<ChatCompletionChunk & WithXHeaders> | undefined> {
+    const makeCompletionRequest = async () => {
+      try {
+        return this._client?.stream(request);
+      } catch (error) {
+        console.error(error);
+        throw error;
+      }
+    };
     return this.caller.call(makeCompletionRequest);
   }
 
   protected async completionWithRetry(
     request: Chat & Kwargs,
     options: this["ParsedCallOptions"]
-  ): Promise<ChatCompletion> {
-    const makeCompletionRequest = async () => await this._client?.chat(request);
+  ): Promise<ChatCompletion & WithXHeaders> {
+    const makeCompletionRequest = async () => {
+      try {
+        return await this._client?.chat(request);
+      } catch (error) {
+        console.error(error);
+        throw error;
+      }
+    };
     return this.caller.callWithOptions(
       { signal: options.signal ?? undefined },
       makeCompletionRequest
@@ -594,10 +616,7 @@ export class GigaChat<
       requestOptions
     );
 
-    const generation = gigachatResponseToChatMessage(
-      response.choices[0],
-      response.usage
-    );
+    const generation = gigachatResponseToChatMessage(response);
     return {
       generations: [
         {
