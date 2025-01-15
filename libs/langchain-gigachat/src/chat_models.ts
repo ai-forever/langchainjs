@@ -142,7 +142,7 @@ function extractMessageContentString(content: MessageContent): string {
 }
 
 function messageToGigaChatRole(message: BaseMessage): MessageRole {
-  const type = message.getType();
+  const type = message._getType();
   switch (type) {
     case "system":
       return "system";
