@@ -164,40 +164,6 @@ function messageToGigaChatRole(message: BaseMessage): MessageRole {
   }
 }
 
-function _convertMessageToPayload(_messages: BaseMessage[]): Message[] {
-  return _messages.map((_message) => {
-    const role = messageToGigaChatRole(_message);
-    let content = extractMessageContentString(_message.content);
-    if (role === "function") {
-      content = JSON.stringify(content);
-    }
-    let function_call;
-    if (isAIMessage(_message) && _message.tool_calls?.length) {
-      function_call = {
-        name: _message.tool_calls[0].name,
-        arguments: _message.tool_calls[0].args,
-      };
-    } else if (_message.additional_kwargs.function_call) {
-      function_call = {
-        name: _message.additional_kwargs.function_call.name,
-        arguments: JSON.parse(
-          _message.additional_kwargs.function_call.arguments
-        ),
-      };
-    }
-    const message: Message = {
-      role,
-      content,
-      function_call,
-      attachments:
-        (_message.additional_kwargs.attachments as string[]) ?? undefined,
-      functions_state_id:
-        (_message.additional_kwargs.functions_state_id as string) ?? undefined,
-    };
-    return message;
-  });
-}
-
 function gigachatResponseToChatMessage(
   completion: ChatCompletion & WithXHeaders,
   includeRawResponse?: boolean
@@ -223,7 +189,7 @@ function gigachatResponseToChatMessage(
         additional_kwargs.tool_calls = rawToolCalls;
         additional_kwargs.function_state_id = choice.message.functions_state_id;
       }
-      if (includeRawResponse) {
+      if (includeRawResponse !== undefined) {
         additional_kwargs.__raw_response = choice;
       }
 
@@ -239,6 +205,7 @@ function gigachatResponseToChatMessage(
           output_tokens: completion.usage.completion_tokens,
           total_tokens: completion.usage.total_tokens,
         },
+        id: completion.xHeaders["xRequestID"] ?? uuidv4(),
       });
     }
     default:
@@ -270,7 +237,7 @@ function _convertDeltaToMessageChunk(
   } else {
     additional_kwargs = {};
   }
-  if (includeRawResponse) {
+  if (includeRawResponse !== undefined) {
     additional_kwargs.__raw_response = chunk;
   }
 
@@ -294,6 +261,7 @@ function _convertDeltaToMessageChunk(
         xHeaders: chunk.xHeaders,
       },
       additional_kwargs,
+      id: chunk.xHeaders["xRequestID"] ?? uuidv4(),
     });
   } else if (role === "system") {
     return new SystemMessageChunk({ content });
@@ -374,6 +342,41 @@ export class GigaChat<
       scope: "GIGACHAT_SCOPE",
       key_file_password: "GIGACHAT_KEY_FILE_PASSWORD",
     };
+  }
+
+  _convertMessageToPayload(_messages: BaseMessage[]): Message[] {
+    return _messages.map((_message) => {
+      const role = messageToGigaChatRole(_message);
+      let content = extractMessageContentString(_message.content);
+      if (role === "function") {
+        content = JSON.stringify(content);
+      }
+      let function_call;
+      if (isAIMessage(_message) && _message.tool_calls?.length) {
+        function_call = {
+          name: _message.tool_calls[0].name,
+          arguments: _message.tool_calls[0].args,
+        };
+      } else if (_message.additional_kwargs.function_call) {
+        function_call = {
+          name: _message.additional_kwargs.function_call.name,
+          arguments: JSON.parse(
+            _message.additional_kwargs.function_call.arguments
+          ),
+        };
+      }
+      const message: Message = {
+        role,
+        content,
+        function_call,
+        attachments:
+          (_message.additional_kwargs.attachments as string[]) ?? undefined,
+        functions_state_id:
+          (_message.additional_kwargs.functions_state_id as string) ??
+          undefined,
+      };
+      return message;
+    });
   }
 
   getLsParams(options: this["ParsedCallOptions"]): LangSmithParams {
@@ -525,7 +528,7 @@ export class GigaChat<
     runManager?: CallbackManagerForLLMRun
   ): AsyncGenerator<ChatGenerationChunk> {
     const params = this.invocationParams(options);
-    const formattedMessages = _convertMessageToPayload(messages);
+    const formattedMessages = this._convertMessageToPayload(messages);
 
     const stream = await this.createStreamWithRetry({
       ...params,
@@ -611,7 +614,7 @@ export class GigaChat<
       {
         ...params,
         stream: false,
-        messages: _convertMessageToPayload(messages),
+        messages: this._convertMessageToPayload(messages),
       },
       requestOptions
     );
@@ -627,7 +630,13 @@ export class GigaChat<
           },
         },
       ],
-      llmOutput: response,
+      llmOutput: {
+        tokenUsage: {
+          input_tokens: response.usage.prompt_tokens,
+          output_tokens: response.usage.completion_tokens,
+          total_tokens: response.usage.total_tokens,
+        },
+      },
     };
   }
 
