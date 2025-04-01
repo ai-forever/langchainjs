@@ -1,6 +1,6 @@
 {
   "name": "langchain-gigachat",
-  "version": "0.0.8",
+  "version": "0.0.11",
   "description": "GigaChat integration for LangChain.js",
   "type": "module",
   "engines": {
@@ -10,7 +10,7 @@
   "types": "./index.d.ts",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ai-forever/langchainjs/tree/main/libs/langchain-gigachat/"
+    "url": "https://github.com/langchain-ai/langchainjs/tree/main/libs/langchain-gigachat/"
   },
   "packageManager": "yarn@3.4.1",
   "homepage": "https://github.com/ai-forever/langchain-gigachat-js",
@@ -46,7 +46,7 @@
     "vectorstores"
   ],
   "dependencies": {
-    "gigachat": "^0.0.12",
+    "gigachat": "^0.0.14",
     "uuid": "^11.0.5",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.23.5"
@@ -75,7 +75,7 @@
     "jest-environment-node": "^29.6.4",
     "prettier": "^2.8.3",
     "release-it": "^15.10.1",
-    "rollup": "^4.22.4",
+    "rollup": "^4.5.2",
     "ts-jest": "^29.1.0",
     "turbo": "^2.3.2",
     "typescript": "<5.2.0"

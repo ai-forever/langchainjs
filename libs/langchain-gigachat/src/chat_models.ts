@@ -534,7 +534,7 @@ export class GigaChat<
       ...params,
       messages: formattedMessages,
       stream: true,
-    });
+    }, options.signal);
 
     if (!stream) {
       return;
@@ -543,10 +543,9 @@ export class GigaChat<
     let index = 0;
 
     for await (const data of stream) {
-      // if (options.signal?.aborted) {
-      //   stream.controller.abort();
-      //   throw new Error("AbortError: User aborted the request.");
-      // }
+      if (options.signal?.aborted) {
+        throw new Error("AbortError: User aborted the request.");
+      }
       const chunk = _convertDeltaToMessageChunk(data, index);
 
       const generationChunk = new ChatGenerationChunk({
@@ -573,11 +572,11 @@ export class GigaChat<
    * @returns A streaming request.
    */
   protected async createStreamWithRetry(
-    request: Chat & Kwargs
+    request: Chat & Kwargs, signal?: AbortSignal
   ): Promise<AsyncIterable<ChatCompletionChunk & WithXHeaders> | undefined> {
     const makeCompletionRequest = async () => {
       try {
-        return this._client?.stream(request);
+        return this._client?.stream(request, signal);
       } catch (error) {
         console.error(error);
         throw error;
