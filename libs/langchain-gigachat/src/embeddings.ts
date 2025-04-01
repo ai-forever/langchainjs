@@ -1,7 +1,6 @@
 import { Embeddings, type EmbeddingsParams } from "@langchain/core/embeddings";
 import { chunkArray } from "@langchain/core/utils/chunk_array";
 import { GigaChat, GigaChatClientConfig } from "gigachat";
-
 /**
  * Interface for GigachatEmbeddings parameters. Extends EmbeddingsParams and
  * defines additional parameters specific to the GigaChat embeddings class.
@@ -30,6 +29,14 @@ export interface GigaChatEmbeddingsParams extends EmbeddingsParams {
   stripNewLines?: boolean;
   /** Model name to use */
   model?: string;
+}
+
+function removeEmpty<T>(obj: T): T {
+  const newObj: Partial<T> = {};
+  for (const key in obj) {
+    if (obj[key] !== undefined) newObj[key] = obj[key];
+  }
+  return newObj as T;
 }
 
 /**
@@ -83,15 +90,11 @@ export class GigaChatEmbeddings
       user: fields?.user,
       password: fields?.password,
       timeout: fields?.timeout,
-      verifySslCerts: fields?.verifySslCerts,
       verbose: fields?.verbose,
-      caBundle: fields?.caBundle,
-      cert: fields?.cert,
-      key: fields?.key,
-      keyPassword: fields?.keyPassword,
       flags: fields?.flags,
       httpsAgent: fields?.httpsAgent,
     };
+    this.clientConfig = removeEmpty(this.clientConfig);
     this._client = new GigaChat(this.clientConfig);
   }
 
@@ -152,8 +155,13 @@ export class GigaChatEmbeddings
    */
   protected async embeddingWithRetry(input: string | Array<string>) {
     return this.caller.call(async () => {
-      const input_ = Array.isArray(input) ? input : [input];
-      return await this._client.embeddings(input_, this.model);
+      try {
+        const input_ = Array.isArray(input) ? input : [input];
+        return await this._client.embeddings(input_, this.model);
+      } catch (error) {
+        console.error(error);
+        throw error;
+      }
     });
   }
 }
