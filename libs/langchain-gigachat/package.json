@@ -1,6 +1,6 @@
 {
-  "name": "@langchain/gigachat",
-  "version": "0.0.1",
+  "name": "langchain-gigachat",
+  "version": "0.0.10",
   "description": "GigaChat integration for LangChain.js",
   "type": "module",
   "engines": {
@@ -46,7 +46,8 @@
     "vectorstores"
   ],
   "dependencies": {
-    "gigachat": "^0.0.8",
+    "gigachat": "^0.0.14",
+    "uuid": "^11.0.5",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.23.5"
   },
