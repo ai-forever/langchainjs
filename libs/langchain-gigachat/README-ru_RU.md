@@ -1,3 +1,13 @@
+<div align="center" id="top">
+
+[![GitHub License](https://img.shields.io/github/license/ai-forever/langchain-gigachat?style=flat-square)](https://opensource.org/license/MIT)
+![npm](https://img.shields.io/npm/dm/langchain-gigachat)
+[![GitHub star chart](https://img.shields.io/github/stars/ai-forever/langchainjs?style=flat-square)](https://www.star-history.com/#ai-forever/langchainjs)
+
+[English](README.md) | [Русский](README-ru_RU.md)
+
+</div>
+
 # langchain-gigachat
 
 Библиотека `langchain-gigachat` позволяет использовать нейросетевые модели GigaChat при разработке LLM-приложений с помощью фреймворков LangChainJS и LangGraphJS.
