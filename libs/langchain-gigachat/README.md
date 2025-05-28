@@ -54,7 +54,7 @@ const giga = new GigaChat({
 Use the GigaChat object to generate responses:
 
 ```typescript
-import { HumanMessage, SystemMessage } from 
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 
 const messages = [
     new SystemMessage("Translate following messages to portugese"),
@@ -69,7 +69,7 @@ console.log(resp.content);
 Use the GigaChat object to create embeddings:
 
 ```js
-import GigaChat from 'gigachat';
+import { GigaChatEmbeddings } from "langchain-gigachat";
 import { Agent } from 'node:https';
 
 const httpsAgent = new Agent({
@@ -77,12 +77,12 @@ const httpsAgent = new Agent({
 });
 
 async function main() {
-  const client = new GigaChat({
+  const embeddings = new GigaChatEmbeddings({
     credentials: 'YOUR_AUTHORIZATION_KEY',
     httpsAgent
   });
-  const response = await client.embeddings(['Sample text']);
-  console.log(response.data);
+
+  console.log(await embeddings.embedDocuments(["Словасловаслова"]));
 }
 
 main();
