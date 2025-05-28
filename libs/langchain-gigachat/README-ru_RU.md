@@ -73,7 +73,7 @@ console.log(resp.content);
 Пример создания векторного представления текста:
 
 ```ts
-import GigaChat from 'gigachat';
+import { GigaChatEmbeddings } from "langchain-gigachat";
 import { Agent } from 'node:https';
 
 /**
@@ -85,12 +85,12 @@ const httpsAgent = new Agent({
 });
 
 async function main() {
-  const client = new GigaChat({
-    credentials: 'ключ_авторизации',
+  const embeddings = new GigaChatEmbeddings({
+    credentials: 'YOUR_AUTHORIZATION_KEY',
     httpsAgent
   });
-  const response = await client.embeddings(['Слова слова слова']);
-  console.log(response.data);
+
+  console.log(await embeddings.embedDocuments(["Словасловаслова"]));
 }
 
 main();
