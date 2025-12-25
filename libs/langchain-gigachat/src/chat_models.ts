@@ -458,7 +458,7 @@ export class GigaChat<
     tools: ChatGigaChatToolType[],
     kwargs?: Partial<CallOptions>
   ): Runnable<BaseLanguageModelInput, AIMessageChunk, CallOptions> {
-    return this.bind({
+    return this.withConfig({
       tools: this.formatStructuredToolToGigaChat(tools),
       ...kwargs,
     } as Partial<CallOptions>);
@@ -484,7 +484,7 @@ export class GigaChat<
         return {
           name: tool.name,
           description: tool.description,
-          parameters: zodToJsonSchema(tool.schema) as FunctionParameters,
+          parameters: isZodSchema(tool.schema) ? zodToJsonSchema(tool.schema) as FunctionParameters : tool.schema as FunctionParameters,
         };
       }
       throw new Error(
