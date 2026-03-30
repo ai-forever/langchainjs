@@ -37,6 +37,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { isLangChainTool } from "@langchain/core/utils/function_calling";
 import {
   Runnable,
+  RunnableBinding,
   RunnablePassthrough,
   RunnableSequence,
 } from "@langchain/core/runnables";
@@ -458,10 +459,14 @@ export class GigaChat<
     tools: ChatGigaChatToolType[],
     kwargs?: Partial<CallOptions>
   ): Runnable<BaseLanguageModelInput, AIMessageChunk, CallOptions> {
-    return this.bind({
-      tools: this.formatStructuredToolToGigaChat(tools),
-      ...kwargs,
-    } as Partial<CallOptions>);
+    return new RunnableBinding({
+      bound: this as Runnable<BaseLanguageModelInput, AIMessageChunk, CallOptions>,
+      kwargs: {
+        tools: this.formatStructuredToolToGigaChat(tools),
+        ...kwargs,
+      } as Partial<CallOptions>,
+      config: {},
+    });
   }
 
   /**
@@ -484,7 +489,8 @@ export class GigaChat<
         return {
           name: tool.name,
           description: tool.description,
-          parameters: zodToJsonSchema(tool.schema) as FunctionParameters,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          parameters: zodToJsonSchema(tool.schema as any) as FunctionParameters,
         };
       }
       throw new Error(
