@@ -310,7 +310,7 @@ function normalizeFunctionParameters(
 function normalizeGigaChatTool(tool: _Function): _Function {
   return {
     ...tool,
-    parameters: normalizeFunctionParameters(tool.parameters),
+    parameters: tool.parameters ? normalizeFunctionParameters(tool.parameters) : undefined,
   };
 }
 
@@ -957,6 +957,7 @@ export class GigaChat<
         {
           name: functionName,
           description:
+            // @ts-ignore
             jsonSchema.description ?? "A function available to call.",
           parameters: jsonSchema as FunctionParameters,
         },
