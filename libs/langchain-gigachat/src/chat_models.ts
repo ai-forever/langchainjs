@@ -59,6 +59,8 @@ import { v4 as uuidv4 } from "uuid";
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Kwargs = Record<string, any>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type JsonSchema = Record<string, any>;
 
 export type ChatGigaChatToolType = _Function | BindToolsInput;
 
@@ -98,6 +100,218 @@ function removeEmpty<T>(obj: T): T {
     if (obj[key] !== undefined) newObj[key] = obj[key];
   }
   return newObj as T;
+}
+
+function pickDiscriminatorName(allProps: Set<string>): string {
+  let name = "_type";
+  while (allProps.has(name)) {
+    name = `_${name}`;
+  }
+  return name;
+}
+
+function getSchemaProperties(schema: JsonSchema): Record<string, JsonSchema> {
+  if (
+    "properties" in schema &&
+    schema.properties &&
+    typeof schema.properties === "object" &&
+    !Array.isArray(schema.properties)
+  ) {
+    return schema.properties as Record<string, JsonSchema>;
+  }
+  return {};
+}
+
+function normalizeGigaChatSchema(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  schema: any,
+  prevKey = ""
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any {
+  if (Array.isArray(schema)) {
+    return schema.map((item) => normalizeGigaChatSchema(item));
+  }
+
+  if (schema && typeof schema === "object") {
+    const objOut: JsonSchema = {};
+
+    for (const [key, value] of Object.entries(schema)) {
+      if (key === "title") {
+        if (prevKey === "properties") {
+          objOut[key] = normalizeGigaChatSchema(value, key);
+        }
+        continue;
+      }
+
+      if (key === "allOf") {
+        if (!Array.isArray(value) || value.length > 1) {
+          throw new Error(
+            "Incorrect function schema! GigaChat does not support multi-variant allOf."
+          );
+        }
+
+        const mergedSchema = normalizeGigaChatSchema(value[0], key);
+        const outerDescription =
+          typeof schema.description === "string" ? schema.description : undefined;
+        Object.assign(objOut, mergedSchema);
+        if (outerDescription) {
+          objOut.description = outerDescription;
+        }
+        continue;
+      }
+
+      if (key === "anyOf") {
+        const variants = Array.isArray(value) ? value : [value];
+        const nonNullVariants = variants.filter(
+          (variant) => !(variant && typeof variant === "object" && variant.type === "null")
+        );
+
+        if (nonNullVariants.length === 0) {
+          Object.assign(objOut, { type: "string" });
+        } else if (nonNullVariants.length === 1) {
+          Object.assign(
+            objOut,
+            normalizeGigaChatSchema(nonNullVariants[0], key) as JsonSchema
+          );
+        } else {
+          const variantNames = nonNullVariants.map((variant, index) => {
+            if (
+              variant &&
+              typeof variant === "object" &&
+              typeof variant.title === "string" &&
+              variant.title
+            ) {
+              return variant.title;
+            }
+            return `variant_${index + 1}`;
+          });
+
+          const allPropNames = new Set<string>();
+          for (const variant of nonNullVariants) {
+            if (variant && typeof variant === "object") {
+              Object.keys(getSchemaProperties(variant as JsonSchema)).forEach((prop) =>
+                allPropNames.add(prop)
+              );
+            }
+          }
+
+          const discriminatorName = pickDiscriminatorName(allPropNames);
+          const mergedProps: Record<string, JsonSchema> = {};
+
+          nonNullVariants.forEach((variant, index) => {
+            const variantName = variantNames[index];
+            const props =
+              variant && typeof variant === "object"
+                ? getSchemaProperties(variant as JsonSchema)
+                : {};
+
+            Object.entries(props).forEach(([propKey, propValue]) => {
+              const fixedSchema = normalizeGigaChatSchema(
+                propValue,
+                "properties"
+              ) as JsonSchema;
+              const description =
+                typeof fixedSchema.description === "string"
+                  ? fixedSchema.description
+                  : "";
+
+              if (!(propKey in mergedProps)) {
+                mergedProps[propKey] = {
+                  ...fixedSchema,
+                  description: `${variantName}: ${description}`,
+                };
+                return;
+              }
+
+              const existing = mergedProps[propKey];
+              const existingType = existing.type;
+              const fixedType = fixedSchema.type;
+              if (existingType !== fixedType) {
+                throw new Error(
+                  `Incorrect function schema! Conflicting types for merged property "${propKey}".`
+                );
+              }
+
+              const oldDescription =
+                typeof existing.description === "string"
+                  ? existing.description
+                  : "";
+              existing.description = `${oldDescription} | ${variantName}: ${description}`;
+
+              if (Array.isArray(fixedSchema.enum)) {
+                existing.enum = Array.from(
+                  new Set([...(existing.enum ?? []), ...fixedSchema.enum])
+                );
+              }
+            });
+          });
+
+          Object.assign(objOut, {
+            type: "object",
+            properties: {
+              [discriminatorName]: {
+                type: "string",
+                enum: variantNames,
+                description: "Which variant to use",
+              },
+              ...mergedProps,
+            },
+            required: [discriminatorName],
+          });
+        }
+        continue;
+      }
+
+      if (Array.isArray(value) || (value && typeof value === "object")) {
+        objOut[key] = normalizeGigaChatSchema(value, key);
+      } else {
+        objOut[key] = value;
+      }
+    }
+
+    if (objOut.type === "object" && !("properties" in objOut)) {
+      objOut.properties = {};
+    }
+
+    return objOut;
+  }
+
+  return schema;
+}
+
+function normalizeFunctionParameters(
+  parameters: FunctionParameters
+): FunctionParameters {
+  const normalized = normalizeGigaChatSchema(parameters) as FunctionParameters;
+
+  if (
+    "properties" in normalized &&
+    normalized.properties &&
+    typeof normalized.properties === "object" &&
+    !Array.isArray(normalized.properties)
+  ) {
+    Object.values(normalized.properties).forEach((property) => {
+      if (!property || typeof property !== "object" || Array.isArray(property)) {
+        return;
+      }
+
+      if (!("type" in property) && !("anyOf" in property) && !("allOf" in property)) {
+        property.type = "object";
+      }
+      if (!("description" in property)) {
+        property.description = "";
+      }
+    });
+  }
+
+  return normalized;
+}
+
+function normalizeGigaChatTool(tool: _Function): _Function {
+  return {
+    ...tool,
+    parameters: normalizeFunctionParameters(tool.parameters),
+  };
 }
 
 /**
@@ -483,14 +697,16 @@ export class GigaChat<
     }
     return tools.map((tool) => {
       if (isGigaChatTool(tool)) {
-        return tool;
+        return normalizeGigaChatTool(tool);
       }
       if (isLangChainTool(tool)) {
         return {
           name: tool.name,
           description: tool.description,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          parameters: zodToJsonSchema(tool.schema as any) as FunctionParameters,
+          parameters: normalizeFunctionParameters(
+            zodToJsonSchema(tool.schema as any) as FunctionParameters
+          ),
         };
       }
       throw new Error(
@@ -734,7 +950,9 @@ export class GigaChat<
     let outputParser: BaseLLMOutputParser<RunOutput>;
     let tools: _Function[];
     if (isZodSchema(schema)) {
-      const jsonSchema = zodToJsonSchema(schema as z.ZodType<RunOutput>);
+      const jsonSchema = normalizeFunctionParameters(
+        zodToJsonSchema(schema as z.ZodType<RunOutput>) as FunctionParameters
+      );
       tools = [
         {
           name: functionName,
@@ -758,13 +976,13 @@ export class GigaChat<
         typeof schema_.parameters === "object" &&
         schema_.parameters != null
       ) {
-        gigachatTools = schema as _Function;
+        gigachatTools = normalizeGigaChatTool(schema as _Function);
         functionName = schema_.name;
       } else {
         gigachatTools = {
           name: functionName,
           description: schema.description ?? "",
-          parameters: schema as FunctionParameters,
+          parameters: normalizeFunctionParameters(schema as FunctionParameters),
         };
       }
       tools = [gigachatTools];
