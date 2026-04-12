@@ -469,12 +469,17 @@ function _convertDeltaToMessageChunk(
         index,
       });
     }
+    // Only set xHeaders on the first chunk (index === 0) to prevent
+    // string concatenation of header values during BaseMessageChunk.concat().
+    // LangChain's merge_dicts concatenates string values, so repeated
+    // xHeaders on every chunk causes xRequestID/xSessionID to grow
+    // with each streaming chunk (e.g. "abc-123abc-123abc-123...").
+    const response_metadata: Record<string, unknown> =
+      index === 0 ? { xHeaders: chunk.xHeaders } : {};
     return new AIMessageChunk({
       content,
       tool_call_chunks: toolCallChunks,
-      response_metadata: {
-        xHeaders: chunk.xHeaders,
-      },
+      response_metadata,
       additional_kwargs,
       id: chunk.xHeaders["xRequestID"] ?? uuidv4(),
     });
